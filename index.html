@@ -22,7 +22,12 @@ h1 {
 .search {
   display: flex;
   gap: 10px;
-  margin-bottom: 30px;
+  margin-bottom: 10px;
+}
+
+#filterInput {
+  margin-bottom: 25px;
+  width: 260px;
 }
 
 input {
@@ -34,11 +39,11 @@ input {
 }
 
 button {
-  padding: 12px 18px;
-  border-radius: 30px;
+  padding: 10px 16px;
+  border-radius: 20px;
   border: none;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .card {
@@ -46,11 +51,18 @@ button {
   border-radius: 16px;
   padding: 16px 20px;
   margin: 8px 0;
-  width: 420px;
+  width: 520px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .pos {
@@ -70,6 +82,19 @@ button {
   border-radius: 12px;
   font-size: 12px;
 }
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.smallBtn {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+
+.del { background:#ffe5e5; }
+.edit { background:#e5f0ff; }
 </style>
 </head>
 
@@ -82,65 +107,145 @@ button {
   <button onclick="addWord()">Add</button>
 </div>
 
+<input id="filterInput" placeholder="Search in list..." oninput="render()">
+
 <div id="list"></div>
 
 <script>
+// 🔹 Kontrollü synonym veri tabanı
 const synonymDB = {
-  diminish:["decrease","reduce"],
+  diminish:["decrease","reduce","lessen"],
   decrease:["diminish","reduce"],
   reduce:["decrease","diminish"],
   deceive:["mislead","trick"],
-  mislead:["deceive"]
+  mislead:["deceive"],
+  reliability:["dependability"],
+  tiredness:["fatigue"]
+};
+
+// 🔹 Çoklu yapı sözlüğü (AI destekli rewrite yerine güvenli kural + mini sözlük)
+const posDictionary = {
+  decrease:["v","n"],
+  increase:["v","n"],
+  change:["v","n"],
+  use:["v","n"],
+  work:["v","n"],
+  answer:["v","n"],
+  love:["v","n"]
 };
 
 const words = [];
 
-function posGuess(w){
-  if(w.endsWith("ly")) return "adv";
-  if(w.endsWith("tion")||w.endsWith("ment")) return "n";
-  if(w.endsWith("ous")||w.endsWith("ful")||w.endsWith("ive")) return "adj";
-  return "v";
+function guessPOS(w){
+  w = w.toLowerCase();
+
+  if(posDictionary[w]) return posDictionary[w];
+
+  const result = new Set();
+
+  if(w.endsWith("ly")) result.add("adv");
+  if(w.endsWith("tion")||w.endsWith("ment")||w.endsWith("ness")||w.endsWith("ity")) result.add("n");
+  if(w.endsWith("ous")||w.endsWith("ful")||w.endsWith("ive")||w.endsWith("al")||w.endsWith("able")) result.add("adj");
+
+  // çoğu kelime fiil de olabilir → varsayılan ekle
+  if(result.size === 0) result.add("v");
+
+  return [...result];
+}
+
+// 🔹 Basit İngilizce kelime kontrolü (rastgele karakterleri engeller)
+function looksEnglish(w){
+  return /^[a-zA-Z-]+$/.test(w);
 }
 
 function addWord(){
   const input = document.getElementById("wordInput");
   const w = input.value.trim().toLowerCase();
   if(!w) return;
+  if(!looksEnglish(w)){
+    alert("Only normal English-style words allowed");
+    return;
+  }
   if(words.find(x=>x.word===w)) return;
 
-  words.push({word:w,pos:posGuess(w)});
+  words.push({word:w,pos:guessPOS(w)});
   input.value="";
   render();
 }
 
+function deleteWord(w){
+  const i = words.findIndex(x=>x.word===w);
+  if(i>-1) words.splice(i,1);
+  render();
+}
+
+function editWord(oldWord){
+  const nw = prompt("Edit word:", oldWord);
+  if(!nw) return;
+  const clean = nw.trim().toLowerCase();
+  if(!looksEnglish(clean)) return;
+
+  const item = words.find(x=>x.word===oldWord);
+  item.word = clean;
+  item.pos = guessPOS(clean);
+  render();
+}
+
+function getRelated(word){
+  const rel=(synonymDB[word]||[]);
+  return rel.filter(r=>words.find(w=>w.word===r));
+}
+
 function render(){
   const list = document.getElementById("list");
+  const filter = document.getElementById("filterInput").value.toLowerCase();
   list.innerHTML="";
 
-  words.sort((a,b)=>a.word.localeCompare(b.word));
+  const sorted = [...words].sort((a,b)=>a.word.localeCompare(b.word));
 
-  words.forEach(item=>{
+  sorted
+    .filter(item=>item.word.includes(filter))
+    .forEach(item=>{
+
     const card=document.createElement("div");
     card.className="card";
 
     const left=document.createElement("div");
-    left.innerHTML=`${item.word} <span class="pos">(${item.pos})</span>`;
+    left.className="left";
+
+    const posText = item.pos.join(",");
+    left.innerHTML=`<div><b>${item.word}</b> <span class="pos">(${posText})</span></div>`;
 
     const relDiv=document.createElement("div");
     relDiv.className="related";
 
-    const rel=(synonymDB[item.word]||[])
-      .filter(r=>words.find(w=>w.word===r));
-
-    rel.forEach(r=>{
+    getRelated(item.word).forEach(r=>{
       const t=document.createElement("span");
       t.className="tag";
       t.textContent=r;
       relDiv.appendChild(t);
     });
 
+    left.appendChild(relDiv);
+
+    const actions=document.createElement("div");
+    actions.className="actions";
+
+    const del=document.createElement("button");
+    del.textContent="🗑";
+    del.className="smallBtn del";
+    del.onclick=()=>deleteWord(item.word);
+
+    const edit=document.createElement("button");
+    edit.textContent="✏️";
+    edit.className="smallBtn edit";
+    edit.onclick=()=>editWord(item.word);
+
+    actions.appendChild(edit);
+    actions.appendChild(del);
+
     card.appendChild(left);
-    card.appendChild(relDiv);
+    card.appendChild(actions);
     list.appendChild(card);
   });
 }
