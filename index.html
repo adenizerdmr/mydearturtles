@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>MyDearTurtles Word List</title>
+<title>MyDearTurtles Word List V3</title>
 
 <style>
 body {
@@ -12,6 +12,28 @@ body {
   flex-direction: column;
   align-items: center;
   padding: 40px;
+}
+
+.top-right {
+  position: fixed;
+  top: 12px;
+  right: 16px;
+  text-align: center;
+  font-weight: bold;
+}
+
+.top-right .badge {
+  border: 2px solid #000;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background: white;
+}
+
+.top-right .class {
+  font-size: 12px;
+  color: black;
+  margin-top: 4px;
 }
 
 h1 {
@@ -51,7 +73,7 @@ button {
   border-radius: 16px;
   padding: 16px 20px;
   margin: 8px 0;
-  width: 520px;
+  width: 560px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.08);
   display: flex;
   justify-content: space-between;
@@ -95,10 +117,16 @@ button {
 
 .del { background:#ffe5e5; }
 .edit { background:#e5f0ff; }
+.meaning { font-size:12px; color:#444; }
 </style>
 </head>
 
 <body>
+
+<div class="top-right">
+  <div class="badge">ODTÜ</div>
+  <div class="class">301 class</div>
+</div>
 
 <h1>MyDearTurtles</h1>
 
@@ -112,63 +140,69 @@ button {
 <div id="list"></div>
 
 <script>
-// 🔹 Kontrollü synonym veri tabanı
-const synonymDB = {
-  diminish:["decrease","reduce","lessen"],
-  decrease:["diminish","reduce"],
-  reduce:["decrease","diminish"],
-  deceive:["mislead","trick"],
-  mislead:["deceive"],
-  reliability:["dependability"],
-  tiredness:["fatigue"]
-};
-
-// 🔹 Çoklu yapı sözlüğü (AI destekli rewrite yerine güvenli kural + mini sözlük)
-const posDictionary = {
-  decrease:["v","n"],
-  increase:["v","n"],
-  change:["v","n"],
-  use:["v","n"],
-  work:["v","n"],
-  answer:["v","n"],
-  love:["v","n"]
-};
+// ✅ gerçek sözlük API
+const API = "https://api.dictionaryapi.dev/api/v2/entries/en/";
 
 const words = [];
 
-function guessPOS(w){
-  w = w.toLowerCase();
-
-  if(posDictionary[w]) return posDictionary[w];
-
-  const result = new Set();
-
-  if(w.endsWith("ly")) result.add("adv");
-  if(w.endsWith("tion")||w.endsWith("ment")||w.endsWith("ness")||w.endsWith("ity")) result.add("n");
-  if(w.endsWith("ous")||w.endsWith("ful")||w.endsWith("ive")||w.endsWith("al")||w.endsWith("able")) result.add("adj");
-
-  // çoğu kelime fiil de olabilir → varsayılan ekle
-  if(result.size === 0) result.add("v");
-
-  return [...result];
-}
-
-// 🔹 Basit İngilizce kelime kontrolü (rastgele karakterleri engeller)
 function looksEnglish(w){
   return /^[a-zA-Z-]+$/.test(w);
 }
 
-function addWord(){
+async function fetchWordData(word){
+  try{
+    const res = await fetch(API + word);
+    if(!res.ok) return null;
+    const data = await res.json();
+
+    const posSet = new Set();
+    const synonymSet = new Set();
+    let meaning = "";
+
+    data.forEach(entry=>{
+      entry.meanings.forEach(m=>{
+        posSet.add(shortPOS(m.partOfSpeech));
+        if(!meaning && m.definitions[0]) meaning = m.definitions[0].definition;
+        (m.synonyms||[]).forEach(s=>synonymSet.add(s.toLowerCase()));
+      });
+    });
+
+    return {
+      pos:[...posSet],
+      synonyms:[...synonymSet],
+      meaning
+    };
+
+  }catch(e){
+    return null;
+  }
+}
+
+function shortPOS(p){
+  if(p==="noun") return "n";
+  if(p==="verb") return "v";
+  if(p==="adjective") return "adj";
+  if(p==="adverb") return "adv";
+  return p;
+}
+
+async function addWord(){
   const input = document.getElementById("wordInput");
   const w = input.value.trim().toLowerCase();
   if(!w) return;
   if(!looksEnglish(w)){
-    alert("Only normal English-style words allowed");
+    alert("Only English words allowed");
     return;
   }
   if(words.find(x=>x.word===w)) return;
 
-  words.push({word:w,pos:guessPOS(w)});
+  const data = await fetchWordData(w);
+  if(!data){
+    alert("Word not found in dictionary");
+    return;
+  }
+
+  words.push({word:w,...data});
   input.value="";
   render();
 }
@@ -179,21 +213,22 @@ function deleteWord(w){
   render();
 }
 
-function editWord(oldWord){
+async function editWord(oldWord){
   const nw = prompt("Edit word:", oldWord);
   if(!nw) return;
   const clean = nw.trim().toLowerCase();
   if(!looksEnglish(clean)) return;
 
+  const data = await fetchWordData(clean);
+  if(!data){ alert("Word not found"); return; }
+
   const item = words.find(x=>x.word===oldWord);
-  item.word = clean;
-  item.pos = guessPOS(clean);
+  Object.assign(item,{word:clean,...data});
   render();
 }
 
-function getRelated(word){
-  const rel=(synonymDB[word]||[]);
-  return rel.filter(r=>words.find(w=>w.word===r));
+function getRelated(item){
+  return item.synonyms.filter(s=>words.find(w=>w.word===s));
 }
 
 function render(){
@@ -204,8 +239,8 @@ function render(){
   const sorted = [...words].sort((a,b)=>a.word.localeCompare(b.word));
 
   sorted
-    .filter(item=>item.word.includes(filter))
-    .forEach(item=>{
+  .filter(item=>item.word.includes(filter))
+  .forEach(item=>{
 
     const card=document.createElement("div");
     card.className="card";
@@ -213,13 +248,19 @@ function render(){
     const left=document.createElement("div");
     left.className="left";
 
-    const posText = item.pos.join(",");
-    left.innerHTML=`<div><b>${item.word}</b> <span class="pos">(${posText})</span></div>`;
+    left.innerHTML=`<div><b>${item.word}</b> <span class="pos">(${item.pos.join(",")})</span></div>`;
+
+    if(item.meaning){
+      const m=document.createElement("div");
+      m.className="meaning";
+      m.textContent=item.meaning;
+      left.appendChild(m);
+    }
 
     const relDiv=document.createElement("div");
     relDiv.className="related";
 
-    getRelated(item.word).forEach(r=>{
+    getRelated(item).forEach(r=>{
       const t=document.createElement("span");
       t.className="tag";
       t.textContent=r;
